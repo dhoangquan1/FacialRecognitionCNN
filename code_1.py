@@ -30,6 +30,7 @@ from tqdm.auto import tqdm
 # evaluation & visualization part
 import sklearn
 import seaborn as sns
+from sklearn.metrics import confusion_matrix, classification_report, precision_score, recall_score, accuracy_score
 
 ################################################################################
 # Get Data
@@ -131,9 +132,11 @@ train_transforms = transforms.Compose([
     ###################################
     ###################################
     # You may do some transforms here #
-    transforms.RandomRotation(degrees=5),                                                      # was degrees=15
-    transforms.RandomAffine(degrees=5, translate=(0.05, 0.05), scale=(0.95, 1.05), shear=2),       # was degrees=15, translate=(0.1, 0.1), scale=(0.8, 1.2), shear=10
-    transforms.RandomResizedCrop(size=(48,48), scale=(0.9, 1.0)),                             # was scale=(0.5,1.0)
+
+    transforms.Pad(padding=4, padding_mode='reflect'),
+    transforms.RandomResizedCrop(size=(48,48), scale=(0.5, 1.0)),
+    transforms.RandomHorizontalFlip(),
+    
     ###################################
     ###################################
 
@@ -165,47 +168,42 @@ class Classifier(nn.Module):
             nn.BatchNorm2d(32),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),                 # 24x24 spatial dimension
-            nn.Dropout(p=0.25)
+            nn.Dropout(p=0.5)
         )
         self.layer_2 = nn.Sequential(
             nn.Conv2d(32, 64, kernel_size=3, padding=1),        # 64 channels
             nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),                 # 12x12 spatial dimension
-            nn.Dropout(p=0.25)
+            nn.Dropout(p=0.3)
         )
         self.layer_3 = nn.Sequential(
             nn.Conv2d(64, 128, kernel_size=3, padding=1),       # 128 channels
             nn.BatchNorm2d(128),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),                 # 6x6 spatial dimension
-            nn.Dropout(p=0.25)
+            nn.Dropout(p=0.5)
         )
         self.layer_4 = nn.Sequential(
             nn.Conv2d(128, 256, kernel_size=3, padding=1),      # 256 channels
             nn.BatchNorm2d(256),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),                 # 3x3 spatial dimension
-            nn.Dropout(p=0.25)
+            nn.Dropout(p=0.3)
         )
         
         self.fc5 = nn.Sequential(
-            nn.Linear(256*3*3, 128),                            # Dense to 128 channels (3x3 spatial dimension)
-            nn.BatchNorm1d(128),
+            nn.Linear(256*3*3, 256),                            # Dense to 128 channels (3x3 spatial dimension)
+            nn.BatchNorm1d(256),
             nn.ReLU(),
-            nn.Dropout(p=0.25)
+            nn.Dropout(p=0.5)
         ) 
-        self.fc6 = nn.Sequential(
-            nn.Linear(128, 64),                             # Dense to 64 channels (3x3 spatial dimension)
-            nn.BatchNorm1d(64),
-            nn.ReLU(),
-            nn.Dropout(p=0.25)
-        )
+       
         
         # Feel free to experiment with different layer combinations.
         self.layer_flatten = nn.Flatten()
         # For Linear output only, can use CrossEntropyLoss() for the loss (automatically apply Softmax)
-        self.fc_layer_for_output = nn.Linear(64, num_classes)    # 512 channels * 7 spatial height * 7 spatial width
+        self.fc_layer_for_output = nn.Linear(256, num_classes)    # 256 channels to 7 channels
         # If you are using Linear + Sigmoid as the output layer, then BCELoss() can be used to get the loss
         # To know more about criterion, please check PyTorch official site
 
@@ -224,8 +222,7 @@ class Classifier(nn.Module):
         x = self.layer_4(out_3)
         flattened = self.layer_flatten(x)
         fc1 = self.fc5(flattened)
-        fc2 = self.fc6(fc1)
-        output = self.fc_layer_for_output(fc2)
+        output = self.fc_layer_for_output(fc1)
         return output
 
 ################################################################################
@@ -248,15 +245,11 @@ model = Classifier().to(device)
 ###########################################################################################
 ###########################################################################################
 # You can try differnet configurations below for training the model to get better results #
-# V1:   Changed batch_size 64 -> 256
-#       Changed n_epochs 5 -> 8
-#       
-#       Changed weight_decay 0 -> 1e-4
 ###########################################################################################
 ###########################################################################################
 
 # The number of batch size
-batch_size = 256
+batch_size = 128
 
 # The number of training epochs
 n_epochs = 30
@@ -265,9 +258,9 @@ n_epochs = 30
 criterion = nn.CrossEntropyLoss()
 
 # Initialize optimizer, you can try different hyperparameters or different types of optimizer
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)              # was lr=0.00025, weight_decay=1e-4 
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)              # was lr=0.00025, weight_decay=1e-4 
 
-scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3)
 
 ################################################################################
 # Dataloader 
@@ -388,8 +381,6 @@ for epoch in range(n_epochs):
         # Record the loss and accuracy.
         train_loss.append(loss.item())
         train_accs.append(acc)
-
-    scheduler.step()
     
     train_loss = sum(train_loss) / len(train_loss)
     train_acc = sum(train_accs) / len(train_accs)
@@ -435,6 +426,8 @@ for epoch in range(n_epochs):
 
     # Print the information.
     print(f"[ Valid | {epoch + 1:03d}/{n_epochs:03d} ] loss = {valid_loss:.5f}, acc = {valid_acc:.5f}")
+    
+    scheduler.step(valid_loss)
     
     epoch_valid_accs.append(valid_acc)
     
@@ -552,7 +545,32 @@ with torch.no_grad():
 
     ##########################
     ##########################
-    # Your code to implement #
+
+    #initialize the confusion matrix.
+    cm = confusion_matrix(true_labels, predictions)
+
+    #prepare labels
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Greens", xticklabels=desired_class_order, yticklabels=desired_class_order)
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.title('Confusion Matrix')
+    plt.show()
+
+    #Extract accuracy, and the precision and recall values from the confusion matrix
+    overall_accuracy = accuracy_score(true_labels, predictions)
+    print(f"Overall accuracy: {overall_accuracy} -% \n")
+
+    # calculate precision and recall values.
+    precisions = precision_score(true_labels, predictions, average=None, zero_division=1)
+    recalls = recall_score(true_labels, predictions, average=None, zero_division=1)
+
+    #
+    index = 0
+    for class_name in desired_class_order:
+        print(f"{class_name}: precision ({str(precisions[index] * 100)}-%), recall ({str(recalls[index] * 100)}-%)\n")
+        index += 1
+
     ##########################
     ##########################
 
@@ -562,6 +580,46 @@ with torch.no_grad():
 
     ##########################
     ##########################
-    # Your code to implement #
+
+    # obtain indexes of mismatched tests.
+    misclassified_indices = []
+    for index in range(len(predictions)):
+        if true_labels[index] != predictions[index]:
+            misclassified_indices.append(index)
+
+    # select 3 random mismatches.
+    random_misclassified_indices = random.sample(misclassified_indices, 3) if len(misclassified_indices) >= 3 else misclassified_indices
+
+    # prepare output.
+    fig, axes = plt.subplots(1, len(random_misclassified_indices), figsize=(12, 4))
+    fig_number = 0
+
+    for index in random_misclassified_indices:
+
+        # obtain prediction label name
+        predicted_label = desired_class_order[predictions[index]]
+
+        # obtain truth label name.
+        true_label = desired_class_order[true_labels[index]]
+
+        # get the file that we had a mismatch on.
+        image_path = test_dataset.imgs[index][0]
+
+        # get the path of the file.
+        image = Image.open(image_path)
+
+        # print mismatch to console
+        print(f"Misclassified Image {index}: True Label = {true_label}, Predicted Label = {predicted_label}")
+
+        #add image and info to the display.
+        axes[fig_number].imshow(image, cmap='gray')
+        axes[fig_number].set_title(f"True: {true_label}\nPredicted: {predicted_label}", fontsize=10)
+
+        #increment figure/
+        fig_number += 1
+
+    # display the three image sets side by side.
+    plt.show()
+
     ##########################
     ##########################

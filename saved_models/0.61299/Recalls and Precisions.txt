@@ -1,0 +1,19 @@
+Overall accuracy: 0.6088169642857143 -%
+
+angry: precision (56.43340857787811-%), recall (52.30125523012552-%)
+
+disgust: precision (71.7948717948718-%), recall (50.0-%)
+
+fear: precision (53.68852459016394-%), recall (25.63600782778865-%)
+
+happy: precision (80.57080131723382-%), recall (82.84424379232506-%)
+
+sad: precision (46.78624813153961-%), recall (50.24077046548957-%)
+
+surprise: precision (72.47706422018348-%), recall (76.144578313253-%)
+
+neutral: precision (48.69358669833729-%), recall (66.66666666666666-%)
+
+Misclassified Image 964: True Label = fear, Predicted Label = surprise
+Misclassified Image 241: True Label = angry, Predicted Label = happy
+Misclassified Image 2764: True Label = sad, Predicted Label = angry
