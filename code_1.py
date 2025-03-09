@@ -558,7 +558,7 @@ with torch.no_grad():
     plt.show()
 
     #Extract accuracy, and the precision and recall values from the confusion matrix
-    overall_accuracy = accuracy_score(true_labels, predictions)
+    overall_accuracy = accuracy_score(true_labels, predictions) * 100
     print(f"Overall accuracy: {overall_accuracy} -% \n")
 
     # calculate precision and recall values.
